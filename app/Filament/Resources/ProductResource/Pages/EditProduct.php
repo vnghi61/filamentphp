@@ -13,10 +13,16 @@ class EditProduct extends EditRecord
 
     protected static string $resource = ProductResource::class;
 
-    protected function getHeaderActions(): array
+    public function getTitle(): string
+    {
+        return __('filament.product_edit');
+    }
+
+    public function getBreadcrumbs(): array
     {
         return [
-            Actions\DeleteAction::make(),
+            route('filament.admin.pages.dashboard') => __('filament.dashboard'),
+            route('filament.admin.resources.products.index') => __('filament.product'),
         ];
     }
 }

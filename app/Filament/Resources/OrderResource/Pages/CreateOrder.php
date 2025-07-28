@@ -3,6 +3,7 @@
 namespace App\Filament\Resources\OrderResource\Pages;
 
 use App\Filament\Resources\OrderResource;
+use App\Models\Product;
 use Filament\Actions;
 use Filament\Resources\Pages\CreateRecord;
 use \App\Traits\RedirectTraits;
@@ -16,7 +17,9 @@ class CreateOrder extends CreateRecord
     protected static string $resource = OrderResource::class;
 
     protected function mutateFormDataBeforeCreate(array $data): array
-    {
+    { 
+        $data['invoice_number'] = 'DH';
+
         $data['subtotal'] = 0;
 
         $data['total'] = 0;
@@ -24,20 +27,33 @@ class CreateOrder extends CreateRecord
         return $data;
     }
 
-    protected function afterSave(): void
+    protected function afterCreate(): void
     {
-        $record = $this->record;
-    
-        $subtotal = $record->orderItems()->sum(DB::raw('total'));
-    
-        $record->update([
+        $this->record->load('orderItems');
+
+        $subtotal = $this->record->orderItems->sum('total');
+
+        foreach ($this->record->orderItems as $item) {
+            if ($item->product_id && $item->quantity > 0) {
+                $product = Product::find($item->product_id);
+
+                if ($product) {
+                    $product->inventory_quantity = max(0, $product->inventory_quantity - $item->quantity);
+                    $product->save();
+                }
+            }
+        }
+
+        $invoiceNumber = $this->record->invoice_number . str_pad($this->record->id, 6, '0', STR_PAD_LEFT);
+
+        $this->record->update([
+            'invoice_number' => $invoiceNumber,
             'subtotal' => $subtotal,
-            'paid_amount' => $record->payment_status === 'Đã thanh toán' ? $subtotal : 0,
-            'due_amount' => $record->payment_status === 'Đã thanh toán' ? 0 : $subtotal,
-            'total' => $subtotal - $record->discount + $record->shipping_fee,
-            'total_quantity' => $record->orderItems()->sum(DB::raw('quantity')),
-            'total_items' => $record->orderItems()->count(),
+            'paid_amount' => $this->record->payment_status === 'Đã thanh toán' ? $subtotal : 0,
+            'due_amount' => $this->record->payment_status === 'Đã thanh toán' ? 0 : $subtotal,
+            'total' => $subtotal - $this->record->discount + $this->record->shipping_fee,
+            'total_quantity' => $this->record->orderItems->sum('quantity'),
+            'total_items' => $this->record->orderItems->count(),
         ]);
-    }    
-    
+    }
 }

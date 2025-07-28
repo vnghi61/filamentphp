@@ -3,17 +3,15 @@
 namespace App\Filament\Resources;
 
 use App\Filament\Resources\UnitResource\Pages;
-use App\Filament\Resources\UnitResource\RelationManagers;
 use App\Models\Unit;
-use Filament\Forms;
+use Filament\Forms\Components\DatePicker;
 use Filament\Forms\Components\TextInput;
 use Filament\Forms\Form;
 use Filament\Resources\Resource;
 use Filament\Tables;
 use Filament\Tables\Columns\TextColumn;
+use Filament\Tables\Filters\Filter;
 use Filament\Tables\Table;
-use Illuminate\Database\Eloquent\Builder;
-use Illuminate\Database\Eloquent\SoftDeletingScope;
 use Illuminate\Support\Str;
 class UnitResource extends Resource
 {
@@ -21,14 +19,24 @@ class UnitResource extends Resource
 
     protected static ?string $navigationIcon = 'heroicon-o-scale';
 
+    public static function getnavigationLabel(): string
+    {
+        return __('filament.unit');
+    }
+
     public static function form(Form $form): Form
     {
         return $form
             ->schema([
-                TextInput::make('name')->required()->afterStateUpdated(fn ($state, callable $set) => 
+                TextInput::make('name')
+                ->label(__('filament.name'))
+                ->required()->afterStateUpdated(fn ($state, callable $set) => 
                 $set('slug', Str::slug($state))),
                 TextInput::make('slug')->unique(ignoreRecord: true),
-                TextInput::make('short_name')->required()->columnSpanFull(),
+                TextInput::make('short_name')
+                ->label(__('filament.short_name'))
+                ->required()
+                ->columnSpanFull(),
             ]);
     }
 
@@ -36,16 +44,51 @@ class UnitResource extends Resource
     {
         return $table
             ->columns([
-                TextColumn::make('name')->searchable()->sortable(),
-                TextColumn::make('created_at')->dateTime(),
+                TextColumn::make('name')
+                ->label(__('filament.name'))
+                ->searchable()
+                ->sortable(),
+                TextColumn::make('created_at')
+                ->label(__('filament.created_at'))
+                ->sortable()
+                ->dateTime('H:i:s d/m/Y'),
             ])
             ->filters([
-                //
+                Filter::make('created_at')
+            ->form([
+                DatePicker::make('from')->label(__('filament.day_from')),
+                DatePicker::make('until')->label(__('filament.day_to')),
+            ])
+            ->query(function ($query, array $data) {
+                return $query
+                    ->when($data['from'], fn ($q) => $q->whereDate('created_at', '>=', $data['from']))
+                    ->when($data['until'], fn ($q) => $q->whereDate('created_at', '<=', $data['until']));
+            })
+            ->indicateUsing(function (array $data): array {
+                $indicators = [];
+
+                if ($data['from']) {
+                    $indicators[] = __('filament.day_from') . \Carbon\Carbon::parse($data['from'])->format('d/m/Y');
+                }
+
+                if ($data['until']) {
+                    $indicators[] = __('filament.day_to') . \Carbon\Carbon::parse($data['until'])->format('d/m/Y');
+                }
+
+                return $indicators;
+            }), 
             ])
             ->actions([
-                Tables\Actions\ViewAction::make(),
-                Tables\Actions\EditAction::make(),
-                Tables\Actions\DeleteAction::make(),
+                Tables\Actions\ViewAction::make()
+                ->label("")
+                ->tooltip(__('filament.view')),
+                Tables\Actions\EditAction::make()
+                ->label("")
+                ->tooltip(__('filament.edit')),
+
+                Tables\Actions\DeleteAction::make()
+                ->label("")
+                ->tooltip(__('filament.delete')),
             ])
             ->bulkActions([
                 Tables\Actions\BulkActionGroup::make([

@@ -23,4 +23,17 @@ class CreateUser extends CreateRecord
         return $data;
     }
 
+    public static function getnavigationLabel(): string
+    {
+        return __('filament.user_create');
+    }
+
+    public function getBreadcrumbs(): array
+    {
+        return [
+            route('filament.admin.pages.dashboard') => __('filament.dashboard'),
+            route('filament.admin.resources.users.index') => __('filament.user'),
+            $this->getUrl() => __('filament.user_create'),
+        ];
+    }
 }

@@ -5,9 +5,10 @@ namespace App\Filament\Resources;
 use App\Filament\Resources\NewsResource\Pages;
 use App\Models\News;
 use App\Models\NewsCategory;
+use Filament\Forms\Components\DatePicker;
 use Filament\Forms\Components\FileUpload;
+use Filament\Forms\Components\RichEditor;
 use Filament\Forms\Components\Select;
-use Filament\Forms\Components\Textarea;
 use Filament\Forms\Components\TextInput;
 use Filament\Forms\Form;
 use Filament\Resources\Resource;
@@ -15,7 +16,6 @@ use Filament\Tables;
 use Filament\Tables\Columns\ImageColumn;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Filters\Filter;
-use Filament\Tables\Filters\SelectFilter;
 use Filament\Tables\Table;
 use Illuminate\Support\Str;
 class NewsResource extends Resource
@@ -24,13 +24,19 @@ class NewsResource extends Resource
 
     protected static ?string $navigationIcon = 'heroicon-o-newspaper';
 
+    public static function getnavigationLabel(): string
+    {
+        return __('filament.news');
+    }
+
+
     public static function form(Form $form): Form
     {
         return $form
             ->schema([
                 FileUpload::make('image')
                 ->image()
-                ->label('Ảnh')
+                ->label(__('filament.image'))
                 ->imageEditor()
                 ->directory('images/news')
                 ->disk('public')
@@ -38,7 +44,7 @@ class NewsResource extends Resource
                 ->imagePreviewHeight('150'),
 
                 FileUpload::make('video')
-                ->label('Video')
+                ->label(__('filament.video'))
                 ->acceptedFileTypes(['video/mp4', 'video/avi', 'video/mov'])
                 ->directory('videos/news')
                 ->visibility('public')
@@ -46,7 +52,7 @@ class NewsResource extends Resource
                 ->maxSize(51200),
 
                 Select::make('news_category_id')
-                ->label('Danh mục')
+                ->label(__('filament.category'))
                 ->relationship('category', 'name')
                 ->options(function () {
                     return NewsCategory::query()
@@ -66,16 +72,19 @@ class NewsResource extends Resource
                 ->columnSpanFull()
                 ->required(),
 
-                TextInput::make('name')->required()->afterStateUpdated(fn ($state, callable $set) => 
+                TextInput::make('name')
+                ->label(__('filament.name'))
+                ->required()
+                ->afterStateUpdated(fn ($state, callable $set) => 
                 $set('slug', Str::slug($state))),
+                
                 TextInput::make('slug')->unique(ignoreRecord: true),
 
-                Textarea::make('content')
-                ->label('Nội dung')
-                ->rows(5)
+                RichEditor::make('content')
+                ->label(__('filament.content'))
                 ->placeholder('Nhập nội dung...')
-                ->columnSpanFull()
-                ->required(),
+                ->required()
+                ->columnSpanFull(),
             ]);
     }
 
@@ -83,10 +92,20 @@ class NewsResource extends Resource
     {
         return $table
             ->columns([
-                ImageColumn::make('image')->label('Ảnh')->circular()->size(40),
-                TextColumn::make('name')->searchable()->sortable(),
-                TextColumn::make('category.name')->label('Danh mục'),
-                TextColumn::make('created_at')->dateTime(),
+                ImageColumn::make('image')
+                ->label(__('filament.image'))
+                ->circular()
+                ->size(40),
+                TextColumn::make('name')
+                ->label(__('filament.name'))
+                ->searchable()
+                ->sortable(),
+                TextColumn::make('category.name')
+                ->label(__('filament.category')),
+                TextColumn::make('created_at')
+                ->label(__('filament.created_at'))
+                ->sortable()
+                ->dateTime('H:i:s d/m/Y'),
             ])
             ->filters([
                 Filter::make('news_category_id')
@@ -112,21 +131,52 @@ class NewsResource extends Resource
             ])
             ->query(function ($query, array $data) {
                 return $query
-                    ->when($data['user_id'], fn ($q) => $q->where('user_id', $data['user_id']));
+                    ->when($data['news_category_id'], fn ($q) => $q->where('news_category_id', $data['news_category_id']));
             })
             ->indicateUsing(function (array $data): array {
                 $indicators = [];
 
-                if ($data['user_id']) {
-                    $indicators[] = 'Khách hàng: ' . $data['user_id'];
+                if ($data['news_category_id']) {
+                    $indicators[] = __('filament.category') . $data['news_category_id'];
                 }
 
                 return $indicators;
             }),
+            Filter::make('created_at')
+            ->form([
+                DatePicker::make('from')->label(__('filament.day_from')),
+                DatePicker::make('until')->label(__('filament.day_to')),
+            ])
+            ->query(function ($query, array $data) {
+                return $query
+                    ->when($data['from'], fn ($q) => $q->whereDate('created_at', '>=', $data['from']))
+                    ->when($data['until'], fn ($q) => $q->whereDate('created_at', '<=', $data['until']));
+            })
+            ->indicateUsing(function (array $data): array {
+                $indicators = [];
+
+                if ($data['from']) {
+                    $indicators[] = __('filament.day_from') . \Carbon\Carbon::parse($data['from'])->format('d/m/Y');
+                }
+
+                if ($data['until']) {
+                    $indicators[] = __('filament.day_to') . \Carbon\Carbon::parse($data['until'])->format('d/m/Y');
+                }
+
+                return $indicators;
+            }), 
             ])
             ->actions([
-                Tables\Actions\EditAction::make(),
-                Tables\Actions\DeleteAction::make(),
+                Tables\Actions\ViewAction::make()
+                ->label("")
+                ->tooltip(__('filament.view')),
+                Tables\Actions\EditAction::make()
+                ->label("")
+                ->tooltip(__('filament.edit')),
+
+                Tables\Actions\DeleteAction::make()
+                ->label("")
+                ->tooltip(__('filament.delete')),
             ])
             ->bulkActions([
                 Tables\Actions\BulkActionGroup::make([

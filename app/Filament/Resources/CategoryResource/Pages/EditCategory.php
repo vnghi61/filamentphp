@@ -12,10 +12,16 @@ class EditCategory extends EditRecord
     use RedirectTraits;
     protected static string $resource = CategoryResource::class;
 
-    protected function getHeaderActions(): array
+    public function getTitle(): string
+    {
+        return __('filament.category_edit');
+    }
+
+    public function getBreadcrumbs(): array
     {
         return [
-            Actions\DeleteAction::make(),
+            route('filament.admin.pages.dashboard') => __('filament.dashboard'),
+            route('filament.admin.resources.categories.index') => __('filament.category'),
         ];
     }
 }

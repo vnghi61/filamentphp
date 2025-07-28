@@ -3,16 +3,14 @@
 namespace App\Filament\Resources;
 
 use App\Filament\Resources\ProductResource\Pages;
-use App\Filament\Resources\ProductResource\RelationManagers;
 use App\Models\Brand;
 use App\Models\Category;
 use App\Models\Product;
 use App\Models\Unit;
-use Filament\Forms;
 use Filament\Forms\Components\Actions\Action;
 use Filament\Forms\Components\FileUpload;
+use Filament\Forms\Components\RichEditor;
 use Filament\Forms\Components\Select;
-use Filament\Forms\Components\Textarea;
 use Filament\Forms\Components\TextInput;
 use Filament\Forms\Components\Toggle;
 use Filament\Forms\Form;
@@ -22,8 +20,6 @@ use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Columns\ToggleColumn;
 use Filament\Tables\Filters\Filter;
 use Filament\Tables\Table;
-use Illuminate\Database\Eloquent\Builder;
-use Illuminate\Database\Eloquent\SoftDeletingScope;
 use Illuminate\Support\Str;
 class ProductResource extends Resource
 {
@@ -31,13 +27,18 @@ class ProductResource extends Resource
 
     protected static ?string $navigationIcon = 'heroicon-o-rectangle-stack';
 
+    public static function getnavigationLabel(): string
+    {
+        return __('filament.product');
+    }
+
     public static function form(Form $form): Form
     {
         return $form
         ->schema([
             FileUpload::make('image')
             ->image()
-            ->label('Ảnh')
+            ->label(__('filament.image'))
             ->imageEditor()
             ->directory('images/products')
             ->disk('public')
@@ -45,20 +46,23 @@ class ProductResource extends Resource
             ->imagePreviewHeight('150'),
 
             FileUpload::make('video')
-            ->label('Video')
+            ->label(__('filament.video'))
             ->acceptedFileTypes(['video/mp4', 'video/avi', 'video/mov'])
             ->directory('videos/products')
             ->visibility('public')
             ->disk('public')
             ->maxSize(51200),
 
-            TextInput::make('name')->required()->afterStateUpdated(fn ($state, callable $set) => 
+            TextInput::make('name')
+            ->label(__('filament.name'))
+            ->required()
+            ->afterStateUpdated(fn ($state, callable $set) => 
             $set('slug', Str::slug($state))),
 
             TextInput::make('slug')->required()->unique(ignoreRecord: true),
 
             Select::make('category_id')
-            ->label('Danh mục')
+            ->label(__('filament.category'))
             ->options(function () {
                 return Category::query()
                     ->limit(100)
@@ -79,7 +83,7 @@ class ProductResource extends Resource
             ->required(),
 
             Select::make('brand_id')
-            ->label('Thương hiệu')
+            ->label(__('filament.brand'))
             ->options(function () {
                 return Brand::query()
                     ->limit(100)
@@ -98,7 +102,7 @@ class ProductResource extends Resource
             ->searchable(),
 
             Select::make('unit_id')
-            ->label('Đơn vị')
+            ->label(__('filament.unit'))
             ->relationship('unit', 'name')
             ->options(function () {
                 return Unit::query()
@@ -118,41 +122,41 @@ class ProductResource extends Resource
             ->required(),
 
             TextInput::make('item_code')
-            ->label('Mã hàng hóa')
+            ->label(__('filament.item_code'))
             ->required()
             ->suffixAction(
             Action::make('generateCode')
                 ->icon('heroicon-m-qr-code')
-                ->tooltip('Tạo mã tự động')
+                ->tooltip(__('filament.auto'))
                 ->action(function (callable $set) {
                     $set('item_code', 'MH-' . strtoupper(Str::random(6)));
                 })
             ),
 
             TextInput::make('inventory_quantity')
-            ->label('Tồn kho')
+            ->label(__('filament.inventory_quantity'))
             ->numeric()
             ->required(),
 
             TextInput::make('purchase_price')
-            ->label('Giá nhập')
+            ->label(__('filament.purchase_price'))
             ->numeric()
             ->required(),
 
             TextInput::make('sales_price')
-            ->label('Giá bán')
+            ->label(__('filament.sales_price'))
             ->numeric()
             ->required(),
 
             Toggle::make('display')
-            ->label('Kích hoạt')
+            ->label(__('filament.display'))
             ->inline(true)
             ->default(true),
 
-            Textarea::make('description')
-            ->label('Mô tả')
-            ->rows(5)
-            ->placeholder('Nhập mô tả...')
+            RichEditor::make('description')
+            ->label(__('filament.description'))
+            ->placeholder(__('filament.fill_information'))
+            ->required()
             ->columnSpanFull(),
         ]);
     }
@@ -161,22 +165,31 @@ class ProductResource extends Resource
     {
         return $table
             ->columns([
-                TextColumn::make('name')->searchable()->sortable(),
-                TextColumn::make('category.name')->label('Danh mục'),
-                TextColumn::make('purchase_price')->label('Giá nhập'),
-                TextColumn::make('sales_price')->label('Giá bán'),
-                TextColumn::make('inventory_quantity')->label('Tồn kho'),
-                TextColumn::make('created_at')->dateTime(),
+                TextColumn::make('name')
+                ->label(__('filament.name'))
+                ->searchable()->sortable(),
+                TextColumn::make('category.name')
+                ->label(__('filament.category')),
+                TextColumn::make('purchase_price')
+                ->label(__('filament.purchase_price')),
+                TextColumn::make('sales_price')
+                ->label(__('filament.sales_price')),
+                TextColumn::make('inventory_quantity')
+                ->label(__('filament.inventory_quantity')),
+                TextColumn::make('created_at')
+                ->label(__('filament.created_at'))
+                ->sortable()
+                ->dateTime('H:i:s d/m/Y'),
                 ToggleColumn::make('display')
-                ->label('Kích hoạt')
-                ->tooltip('Bật/Tắt hiển thị')   
+                ->label(__('filament.display'))
+                ->tooltip(__('filament.display'))
             ])
             ->filters([
                 // Filter theo giá mua
                 Filter::make('purchase_price')
                     ->form([
-                        TextInput::make('min')->numeric()->label('Giá mua từ'),
-                        TextInput::make('max')->numeric()->label('Giá mua đến'),
+                        TextInput::make('min')->numeric()->label(__('filament.price_from')),
+                        TextInput::make('max')->numeric()->label(__('filament.to')),
                     ])
                     ->query(function ($query, array $data) {
                         return $query
@@ -187,8 +200,8 @@ class ProductResource extends Resource
                 // Filter theo giá bán
                 Filter::make('sales_price')
                     ->form([
-                        TextInput::make('min')->numeric()->label('Giá bán từ'),
-                        TextInput::make('max')->numeric()->label('Giá bán đến'),
+                        TextInput::make('min')->numeric()->label(__('filament.price_from')),
+                        TextInput::make('max')->numeric()->label(__('filament.to')),
                     ])
                     ->query(function ($query, array $data) {
                         return $query
@@ -199,7 +212,7 @@ class ProductResource extends Resource
                 // Filter theo mã sản phẩm
                 Filter::make('item_code')
                     ->form([
-                        TextInput::make('value')->label('Mã sản phẩm'),
+                        TextInput::make('value')->label(__('filament.item_code')),
                     ])
                     ->query(fn ($query, array $data) =>
                         $query->when($data['value'], fn ($q) => $q->where('item_code', 'like', '%' . $data['value'] . '%'))
@@ -209,7 +222,7 @@ class ProductResource extends Resource
                 Filter::make('category_id')
                     ->form([
                         Select::make('value')
-                            ->label('Danh mục')
+                            ->label(__('filament.category'))
                             ->options(function () {
                                 return Category::query()
                                     ->limit(100)
@@ -232,8 +245,16 @@ class ProductResource extends Resource
             ])
             
             ->actions([
-                Tables\Actions\EditAction::make(),
-                Tables\Actions\DeleteAction::make(),
+                Tables\Actions\ViewAction::make()
+                ->label("")
+                ->tooltip(__('filament.view')),
+                Tables\Actions\EditAction::make()
+                ->label("")
+                ->tooltip(__('filament.edit')),
+
+                Tables\Actions\DeleteAction::make()
+                ->label("")
+                ->tooltip(__('filament.delete')),
             ])
             ->bulkActions([
                 Tables\Actions\BulkActionGroup::make([

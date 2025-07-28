@@ -6,7 +6,6 @@ use App\Filament\Resources\OrderResource\Pages;
 use App\Models\Order;
 use App\Models\Product;
 use App\Models\User;
-use Filament\Forms\Components\Actions\Action;
 use Filament\Forms\Components\DatePicker;
 use Filament\Forms\Components\Grid;
 use Filament\Forms\Components\Hidden;
@@ -21,8 +20,6 @@ use Filament\Tables;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Filters\Filter;
 use Filament\Tables\Table;
-use Illuminate\Database\Eloquent\Builder;
-use Illuminate\Database\Eloquent\SoftDeletingScope;
 use Illuminate\Support\HtmlString;
 
 class OrderResource extends Resource
@@ -31,14 +28,21 @@ class OrderResource extends Resource
 
     protected static ?string $navigationIcon = 'heroicon-o-shopping-cart';
 
+    public static function getnavigationLabel(): string
+    {
+        return __('filament.order');
+    }
+
     public static function form(Form $form): Form
     {
         return $form
         ->schema([
-            TextInput::make('invoice_number')->label('Số hóa đơn')->unique(),
+            TextInput::make('invoice_number')
+            ->label(__('filament.invoice_number'))
+            ->unique(),
             
             Select::make('user_id')
-            ->label('Khách hàng')
+            ->label(__('filament.user'))
             ->searchable()
             ->options(function () {
                 return User::query()
@@ -57,11 +61,19 @@ class OrderResource extends Resource
             })
             ->required(),        
     
-            // Select chọn sản phẩm
+            // Select chọn sản phẩm với validate tồn kho
             Select::make('selected_product')
-                ->label('Chọn sản phẩm')
-                ->options(Product::all()->pluck('name', 'id'))
+            ->label(__('filament.product'))
+                ->options(function () {
+                    // Chỉ hiển thị sản phẩm còn hàng
+                    return Product::where('inventory_quantity', '>', 0)
+                        ->get()
+                        ->mapWithKeys(function ($product) {
+                            return [$product->id => $product->name . ' (Còn: ' . $product->inventory_quantity . ')'];
+                        });
+                })
                 ->searchable()
+                ->required()
                 ->columnSpanFull()
                 ->live()
                 ->afterStateUpdated(function ($state, $component) {
@@ -69,71 +81,198 @@ class OrderResource extends Resource
                     
                     $product = Product::find($state);
                     $livewire = $component->getLivewire();
-                    $current = $livewire->data['product_list'] ?? [];
-                
-                    if ($product && !collect($current)->pluck('id')->contains($product->id)) {
+                    $current = $livewire->data['orderItems'] ?? [];
+                    
+                    // Validate sản phẩm tồn tại và còn hàng
+                    if (!$product) {
+                        $component->getLivewire()->addError('selected_product', 'Sản phẩm không tồn tại.');
+                        $component->state(null);
+                        return;
+                    }
+                    
+                    if ($product->inventory_quantity <= 0) {
+                        $component->getLivewire()->addError('selected_product', 'Sản phẩm "' . $product->name . '" đã hết hàng.');
+                        $component->state(null);
+                        return;
+                    }
+                    
+                    // Kiểm tra sản phẩm đã có trong danh sách chưa
+                    $existingProduct = collect($current)->firstWhere('product_id', $product->id);
+                    
+                    if ($existingProduct) {
+                        // Nếu đã có, kiểm tra xem có thể tăng số lượng không
+                        $currentQuantity = $existingProduct['quantity'] ?? 0;
+                        if ($currentQuantity >= $product->inventory_quantity) {
+                            $component->getLivewire()->addError('selected_product', 
+                                'Sản phẩm "' . $product->name . '" chỉ còn ' . $product->inventory_quantity . ' trong kho.');
+                            $component->state(null);
+                            return;
+                        }
+                        
+                        // Tăng số lượng lên 1
+                        $current = collect($current)->map(function ($item) use ($product) {
+                            if ($item['product_id'] == $product->id) {
+                                $item['quantity'] += 1;
+                                $item['total'] = $item['quantity'] * $item['price'];
+                            }
+                            return $item;
+                        })->toArray();
+                    } else {
+                        // Thêm sản phẩm mới vào danh sách
                         $current[] = [
-                            'id' => $product->id,
+                            'product_id' => $product->id,
                             'name' => $product->name,
-                            'price' => $product->sales_price ?? 100,
-                            'quantity' => 1
+                            'price' => $product->sales_price ?? 0,
+                            'discount' => 0,
+                            'quantity' => 1,
+                            'total' => $product->sales_price ?? 0,
+                            'max_quantity' => $product->inventory_quantity, // Lưu số lượng tối đa
                         ];
-                
-                        $livewire->data['product_list'] = $current;
                     }
                 
+                    $livewire->data['orderItems'] = $current;
+                    
                     // Reset Select về null
                     $livewire->data['selected_product'] = null;
                 })
                 ->dehydrated(false),
     
-            // Repeater hiển thị danh sách đã chọn
-            Repeater::make('product_list')
-                ->label('Sản phẩm mua')
+            // Repeater hiển thị danh sách đã chọn với validate số lượng
+            Repeater::make('orderItems')
+                ->label(__('filament.product'))
+                ->relationship('orderItems')
                 ->columnSpanFull()
+                ->default([])
                 ->live()
                 ->schema([
-                    Hidden::make('id'),
+                    Hidden::make('product_id'),
+                    Hidden::make('discount'),
+                    Hidden::make('max_quantity'),
+                    
                     TextInput::make('name')
-                        ->label('Tên sản phẩm')
-                        ->disabled(),
+                        ->label(__('filament.name'))
+                        ->readonly(),
+                        
                     TextInput::make('price')
-                        ->label('Giá')
-                        ->disabled(),
+                        ->label(__('filament.sales_price'))
+                        ->numeric()
+                        ->default(0)
+                        ->minValue(0)
+                        ->live()
+                        ->afterStateUpdated(function (callable $get, callable $set) {
+                            $quantity = $get('quantity') ?? 0;
+                            $price = $get('price') ?? 0;
+                            $set('total', $quantity * $price);
+                        }),
+            
                     TextInput::make('quantity')
-                        ->label('Số lượng')
+                        ->label(__('filament.quantity'))
                         ->numeric()
                         ->default(1)
                         ->minValue(1)
-                        ->live(),
+                        ->live()
+                        ->rules([
+                            function (callable $get) {
+                                return function (string $attribute, $value, \Closure $fail) use ($get) {
+                                    $productId = $get('product_id');
+                                    $product = Product::find($productId);
+                                    
+                                    if (!$product) {
+                                        $fail('Sản phẩm không tồn tại.');
+                                        return;
+                                    }
+                                    
+                                    if ($value > $product->inventory_quantity) {
+                                        $fail('Số lượng không được vượt quá tồn kho (' . $product->inventory_quantity . ').');
+                                        return;
+                                    }
+                                    
+                                    // Kiểm tra tổng số lượng của sản phẩm này trong tất cả các item
+                                    $livewire = app()->make('livewire');
+                                    $allItems = $livewire->data['orderItems'] ?? [];
+                                    $totalQuantity = collect($allItems)
+                                        ->where('product_id', $productId)
+                                        ->sum('quantity');
+                                        
+                                    if ($totalQuantity > $product->inventory_quantity) {
+                                        $fail('Tổng số lượng sản phẩm này không được vượt quá tồn kho (' . $product->inventory_quantity . ').');
+                                    }
+                                };
+                            }
+                        ])
+                        ->afterStateUpdated(function (callable $get, callable $set, $state, $component) {
+                            $productId = $get('product_id');
+                            $product = Product::find($productId);
+                            
+                            // Validate realtime khi thay đổi số lượng
+                            if ($product && $state > $product->inventory_quantity) {
+                                $component->getLivewire()->addError(
+                                    $component->getStatePath(), 
+                                    'Số lượng không được vượt quá tồn kho (' . $product->inventory_quantity . ').'
+                                );
+                                $set('quantity', $product->inventory_quantity);
+                                $state = $product->inventory_quantity;
+                            }
+                            
+                            $quantity = $state ?? 0;
+                            $price = $get('price') ?? 0;
+                            $set('total', $quantity * $price);
+                        })
+                        ->helperText(function (callable $get) {
+                            $productId = $get('product_id');
+                            $product = Product::find($productId);
+                            return $product ? 'Tồn kho: ' . $product->inventory_quantity : '';
+                        }),
+    
+                    TextInput::make('total')
+                        ->label(__('filament.total'))
+                        ->readOnly()
+                        ->reactive()
+                        ->default(0)
+                        ->afterStateHydrated(function (callable $get, callable $set) {
+                            $quantity = $get('quantity') ?? 0;
+                            $price = $get('price') ?? 0;
+                            $set('total', $quantity * $price);
+                        })
+                        ->afterStateUpdated(function (callable $get, callable $set) {
+                            $quantity = $get('quantity') ?? 0;
+                            $price = $get('price') ?? 0;
+                            $set('total', $quantity * $price);
+                        }),
                 ])
                 ->columns(3)
-                ->visible(true)
+                ->visible(fn (callable $get) => count($get('orderItems') ?? []) > 0)
                 ->reorderable(false)
                 ->addable(false)
-                ->deletable(true),
-
+                ->deletable(true)
+                ->deleteAction(function ($action) {
+                    return $action->after(function () {
+                        // Có thể thêm logic sau khi xóa item nếu cần
+                    });
+                }),
+    
                 Hidden::make('subtotal')->default(0),
                 Hidden::make('total')->default(0),
     
                 TextInput::make('discount')
-                ->label('Giảm giá')
+                ->label(__('filament.discount'))
                 ->numeric()
                 ->default(0)
-                ->live() // Thêm live() để cập nhật real-time
+                ->live()
                 ->suffix('VNĐ')
                 ->minValue(0),
                 
             TextInput::make('shipping_fee')
-                ->label('Phí vận chuyển')
+                ->label(__('filament.shipping_fee'))
                 ->numeric()
                 ->default(0)
-                ->live() // Thêm live() để cập nhật real-time
+                ->live()
                 ->suffix('VNĐ')
                 ->minValue(0),
     
             Select::make('payment_method')
-                ->label('Phương thức thanh toán')
+            ->label(__('filament.payment_method'))
+
                 ->options([
                     'COD',
                     'Chuyển khoản'
@@ -143,18 +282,17 @@ class OrderResource extends Resource
                 ->required(),
     
             Select::make('order_type')
-                ->label('Loại đơn hàng')
+                ->label(__('filament.order_type'))
                 ->options([
                     'Mua tại Cửa hàng',
                     'Mua Online'
                 ])
                 ->default('Mua tại Cửa hàng')
-
                 ->searchable()                
                 ->required(),
     
             Select::make('order_status')
-                ->label('Trạng thái đơn hàng')
+                ->label(__('filament.order_status'))
                 ->options([
                     'Chờ xác nhận',
                     'Đã xác nhận',
@@ -166,7 +304,7 @@ class OrderResource extends Resource
                 ->required(),
     
             Select::make('payment_status')
-                ->label('Trạng thái thanh toán')
+                ->label(__('filament.payment_status'))
                 ->options([
                     'Chưa thanh toán',
                     'Đã thanh toán'
@@ -174,19 +312,18 @@ class OrderResource extends Resource
                 ->default('Chưa thanh toán')
                 ->searchable()                
                 ->required(),
-
+    
             Grid::make(2)
                 ->schema([
-
                 Textarea::make('description')
-                ->label('Ghi chú')
+                ->label(__('filament.description'))
                 ->rows(6),
-
+    
                 Placeholder::make('product_list_display')
-                ->label('Thanh toán')
+                ->label(__('filament.payment'))
                 ->content(function (callable $get) {
-                    $products = $get('product_list') ?? [];
-
+                    $products = $get('orderItems') ?? [];
+    
                     // Tính toán các giá trị
                     $subtotal = 0;
                     foreach ($products as $product) {
@@ -196,7 +333,7 @@ class OrderResource extends Resource
                     $discount = $get('discount') ?? 0;
                     $shippingFee = $get('shipping_fee') ?? 0;
                     $total = $subtotal - $discount + $shippingFee;
-
+    
                     $html = '<div class="border rounded-lg overflow-hidden bg-white">';
                     
                     // Phần tính tổng tiền
@@ -233,7 +370,7 @@ class OrderResource extends Resource
                     $html .= '</div>'; // Close space-y-2
                     $html .= '</div>'; // Close summary section
                     $html .= '</div>'; // Close main container
-
+    
                     return new HtmlString($html);
                 })
             ]),
@@ -244,19 +381,30 @@ class OrderResource extends Resource
     {
         return $table
             ->columns([
-                TextColumn::make('invoice_number')->searchable()->sortable(),
-                TextColumn::make('order_type')->label('Loại đơn hàng'),
-                TextColumn::make('user.name')->label('Khách hàng'),
-                TextColumn::make('total')->label('Tổng tiền'),
-                TextColumn::make('payment_status')->label('Trạng thái thanh toán'),
-                TextColumn::make('order_status')->label('Trạng thái đơn hàng'),
-                TextColumn::make('created_at')->label('Ngày đặt hàng')->dateTime()->sortable(),
+                TextColumn::make('invoice_number')
+                ->label(__('filament.invoice_number'))
+                ->searchable()
+                ->sortable(),
+                TextColumn::make('order_type')
+                ->label(__('filament.order_type')),
+                TextColumn::make('user.name')
+                ->label(__('filament.user')),
+                TextColumn::make('total')
+                ->label(__('filament.total')),
+                TextColumn::make('payment_status')
+                ->label(__('filament.payment_status')),
+                TextColumn::make('order_status')
+                ->label(__('filament.order_status')),
+                TextColumn::make('created_at')
+                ->label(__('filament.created_at'))
+                ->sortable()
+                ->dateTime('H:i:s d/m/Y'),
             ])
             ->filters([
                 Filter::make('created_at')
                 ->form([
-                    DatePicker::make('from')->label('Từ ngày'),
-                    DatePicker::make('until')->label('Đến ngày'),
+                    DatePicker::make('from')->label(__('filament.day_from')),
+                    DatePicker::make('until')->label(__('filament.day_to')),
                 ])
                 ->query(function ($query, array $data) {
                     return $query
@@ -267,11 +415,11 @@ class OrderResource extends Resource
                 $indicators = [];
 
                 if ($data['from']) {
-                    $indicators[] = 'Từ ngày: ' . \Carbon\Carbon::parse($data['from'])->format('d/m/Y');
+                    $indicators[] = __('filament.day_from') . \Carbon\Carbon::parse($data['from'])->format('d/m/Y');
                 }
 
                 if ($data['until']) {
-                    $indicators[] = 'Đến ngày: ' . \Carbon\Carbon::parse($data['until'])->format('d/m/Y');
+                    $indicators[] = __('filament.day_to') . \Carbon\Carbon::parse($data['until'])->format('d/m/Y');
                 }
 
                 return $indicators;
@@ -279,7 +427,8 @@ class OrderResource extends Resource
             Filter::make('payment_status')
             ->form([
                 Select::make('payment_status')
-                ->label('Trạng thái thanh toán')
+                ->label(__('filament.payment_status'))
+
                 ->options([
                     'Chưa thanh toán',
                     'Đã thanh toán'
@@ -295,7 +444,7 @@ class OrderResource extends Resource
                 $indicators = [];
 
                 if ($data['payment_status']) {
-                    $indicators[] = 'Trạng thái thanh toán: ' . $data['payment_status'];
+                    $indicators[] = __('filament.total') . $data['payment_status'];
                 }
 
                 return $indicators;
@@ -303,7 +452,7 @@ class OrderResource extends Resource
             Filter::make('order_type')
             ->form([
                 Select::make('order_type')
-                ->label('Loại đơn hàng')
+                ->label(__('filament.order_type'))
                 ->options([
                     'Mua tại cửa hàng',
                     'Mua Online'
@@ -327,7 +476,7 @@ class OrderResource extends Resource
             Filter::make('order_status')
             ->form([
                 Select::make('order_status')
-                ->label('Trạng thái đơn hàng')
+                ->label(__('filament.order_status'))
                 ->options([
                     'Chờ xác nhận',
                     'Đã xác nhận',
@@ -353,7 +502,7 @@ class OrderResource extends Resource
             Filter::make('user_id')
             ->form([
                 Select::make('user_id')
-                ->label('Khách hàng')
+                ->label(__('filament.user'))
                 ->options(function () {
                     return User::query()
                         ->limit(100)
@@ -379,7 +528,7 @@ class OrderResource extends Resource
                 $indicators = [];
 
                 if ($data['user_id']) {
-                    $indicators[] = 'Khách hàng: ' . $data['user_id'];
+                    $indicators[] = __('filament.user') . $data['user_id'];
                 }
 
                 return $indicators;

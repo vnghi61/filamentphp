@@ -6,6 +6,7 @@ use App\Filament\Resources\BrandResource\Pages;
 use App\Filament\Resources\BrandResource\RelationManagers;
 use App\Models\Brand;
 use Filament\Forms;
+use Filament\Forms\Components\DatePicker;
 use Filament\Forms\Components\FileUpload;
 use Filament\Forms\Components\TextInput;
 use Filament\Forms\Form;
@@ -13,6 +14,7 @@ use Filament\Resources\Resource;
 use Filament\Tables;
 use Filament\Tables\Columns\ImageColumn;
 use Filament\Tables\Columns\TextColumn;
+use Filament\Tables\Filters\Filter;
 use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\SoftDeletingScope;
@@ -24,13 +26,18 @@ class BrandResource extends Resource
 
     protected static ?string $navigationIcon = 'heroicon-o-bookmark-square';
 
+    public static function getNavigationLabel(): string
+    {
+        return __('filament.brand');
+    }
+
     public static function form(Form $form): Form
     {
         return $form
             ->schema([
                 FileUpload::make('image')
                 ->image()
-                ->label('Ảnh')
+                ->label(__('filament.image'))
                 ->imageEditor()
                 ->directory('images/news')
                 ->columnSpanFull()
@@ -38,7 +45,8 @@ class BrandResource extends Resource
                 ->visibility('public')
                 ->imagePreviewHeight('150'),
 
-                TextInput::make('name')->required()->afterStateUpdated(fn ($state, callable $set) => 
+                TextInput::make('name')
+                ->required()->afterStateUpdated(fn ($state, callable $set) => 
                 $set('slug', Str::slug($state))),
 
                 TextInput::make('slug')->unique(ignoreRecord: true),
@@ -49,17 +57,55 @@ class BrandResource extends Resource
     {
         return $table
             ->columns([
-                ImageColumn::make('image')->label('Ảnh')->circular()->size(40),
-                TextColumn::make('name')->searchable()->sortable(),
-                TextColumn::make('created_at')->dateTime(),
+                ImageColumn::make('image')
+                ->label(__('filament.image'))
+                ->circular()
+                ->size(40),
+                TextColumn::make('name')
+                ->label(__('filament.name'))
+                ->searchable()
+                ->sortable(),
+                TextColumn::make('created_at')
+                ->sortable()
+                ->label(__('filament.created_at'))
+                ->dateTime('H:i:s d/m/Y'),
             ])
             ->filters([
-                //
+                Filter::make('created_at')
+                ->form([
+                    DatePicker::make('from')->label(__('filament.day_from')),
+                    DatePicker::make('until')->label(__('filament.day_to')),
+                ])
+                ->query(function ($query, array $data) {
+                    return $query
+                        ->when($data['from'], fn ($q) => $q->whereDate('created_at', '>=', $data['from']))
+                        ->when($data['until'], fn ($q) => $q->whereDate('created_at', '<=', $data['until']));
+                })
+            ->indicateUsing(function (array $data): array {
+                $indicators = [];
+
+                if ($data['from']) {
+                    $indicators[] = __('filament.day_from') . \Carbon\Carbon::parse($data['from'])->format('d/m/Y');
+                }
+
+                if ($data['until']) {
+                    $indicators[] = __('filament.day_to') . \Carbon\Carbon::parse($data['until'])->format('d/m/Y');
+                }
+
+                return $indicators;
+            }), 
             ])
             ->actions([
-                Tables\Actions\ViewAction::make(),
-                Tables\Actions\EditAction::make(),
-                Tables\Actions\DeleteAction::make(),
+                Tables\Actions\ViewAction::make()
+                ->label("")
+                ->tooltip(__('filament.view')),
+                Tables\Actions\EditAction::make()
+                ->label("")
+                ->tooltip(__('filament.edit')),
+
+                Tables\Actions\DeleteAction::make()
+                ->label("")
+                ->tooltip(__('filament.delete')),
             ])
             ->bulkActions([
                 Tables\Actions\BulkActionGroup::make([

@@ -13,10 +13,16 @@ class EditUnit extends EditRecord
 
     protected static string $resource = UnitResource::class;
 
-    protected function getHeaderActions(): array
+    public function getTitle(): string
+    {
+        return __('filament.unit_edit');
+    }
+
+    public function getBreadcrumbs(): array
     {
         return [
-            Actions\DeleteAction::make(),
+            route('filament.admin.pages.dashboard') => __('filament.dashboard'),
+            route('filament.admin.resources.units.index') => __('filament.unit'),
         ];
     }
 }

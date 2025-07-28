@@ -13,7 +13,20 @@ class ListBrands extends ListRecords
     protected function getHeaderActions(): array
     {
         return [
-            Actions\CreateAction::make(),
+            Actions\CreateAction::make()
+            ->label(__('filament.create')),
+        ];
+    }
+
+    public function getTitle(): string
+    {
+        return __('filament.brand_list');
+    }
+    public function getBreadcrumbs(): array
+    {
+        return [
+            route('filament.admin.pages.dashboard') => __('filament.dashboard'),
+            route('filament.admin.resources.brands.index') => __('filament.brand'),
         ];
     }
 }

@@ -2,11 +2,14 @@
 
 namespace App\Providers\Filament;
 
+use App\Http\Middleware\SetLocaleFromSession;
 use Filament\Http\Middleware\Authenticate;
 use Filament\Http\Middleware\AuthenticateSession;
 use Filament\Http\Middleware\DisableBladeIconComponents;
 use Filament\Http\Middleware\DispatchServingFilamentEvent;
+use Filament\Navigation\UserMenuItem;
 use Filament\Pages;
+use Filament\Pages\Page;
 use Filament\Panel;
 use Filament\PanelProvider;
 use Filament\Support\Colors\Color;
@@ -24,6 +27,23 @@ class AdminPanelProvider extends PanelProvider
     {
         return $panel
             ->default()
+            ->userMenuItems([
+                UserMenuItem::make()
+                    ->label('Profile')
+                    ->url('/admin/profile')
+                    ->icon('heroicon-o-user-circle'),
+                    
+                UserMenuItem::make()
+                    ->label(__('English'))
+                    ->url(fn () => route('set-locale', ['locale' => 'en']))
+                    ->icon('heroicon-m-language'),
+            
+                UserMenuItem::make()
+                    ->label(__('Tiếng Việt'))
+                    ->url(fn () => route('set-locale', ['locale' => 'vi']))
+                    ->icon('heroicon-m-language'),
+            ])
+            
             ->id('admin')
             ->path('admin')
             ->login()
@@ -37,13 +57,18 @@ class AdminPanelProvider extends PanelProvider
             ])
             ->discoverWidgets(in: app_path('Filament/Widgets'), for: 'App\\Filament\\Widgets')
             ->widgets([
-                Widgets\AccountWidget::class,
-                Widgets\FilamentInfoWidget::class,
+                \App\Filament\Widgets\StatsOverview::class,
+                \App\Filament\Widgets\UserChart::class,
+                \App\Filament\Widgets\OrderChart::class,
+                \App\Filament\Widgets\ProductChart::class,
+                \App\Filament\Widgets\NewsChart::class,
+                \App\Filament\Widgets\LatestOrders::class,
             ])
             ->middleware([
                 EncryptCookies::class,
                 AddQueuedCookiesToResponse::class,
                 StartSession::class,
+                SetLocaleFromSession::class,
                 AuthenticateSession::class,
                 ShareErrorsFromSession::class,
                 VerifyCsrfToken::class,

@@ -12,10 +12,16 @@ class EditUser extends EditRecord
     use RedirectTraits;
     protected static string $resource = UserResource::class;
 
-    protected function getHeaderActions(): array
+    public function getTitle(): string
+    {
+        return __('filament.user_edit');
+    }
+
+    public function getBreadcrumbs(): array
     {
         return [
-            Actions\DeleteAction::make(),
+            route('filament.admin.pages.dashboard') => __('filament.dashboard'),
+            route('filament.admin.resources.users.index') => __('filament.user'),
         ];
     }
 }

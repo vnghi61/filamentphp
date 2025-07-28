@@ -13,10 +13,16 @@ class EditBrand extends EditRecord
 
     protected static string $resource = BrandResource::class;
 
-    protected function getHeaderActions(): array
+    public function getTitle(): string
+    {
+        return __('filament.brand_edit');
+    }
+
+    public function getBreadcrumbs(): array
     {
         return [
-            Actions\DeleteAction::make(),
+            route('filament.admin.pages.dashboard') => __('filament.dashboard'),
+            route('filament.admin.resources.brands.index') => __('filament.brand'),
         ];
     }
 }
